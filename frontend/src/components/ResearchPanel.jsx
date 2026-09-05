@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { getResearch } from '../api/client.js';
+import { streamResearch } from '../api/client.js';
+import Spinner from './Spinner.jsx';
 
 function Section({ title, children }) {
   return (
@@ -18,34 +19,40 @@ export default function ResearchPanel({ articleId }) {
   // no corresponding render branch fell through to the ready-state return
   // (destructuring `state.data`) on that very first render, before the
   // fetch had even started, crashing with data still null every time.
-  const [state, setState] = useState({ status: 'loading', data: null, error: null });
+  const [state, setState] = useState({ status: 'loading', data: null, error: null, streamText: '' });
 
   useEffect(() => {
-    let cancelled = false;
-    setState({ status: 'loading', data: null, error: null });
-    getResearch(articleId)
-      .then((data) => {
-        if (!cancelled) setState({ status: 'ready', data, error: null });
-      })
-      .catch((err) => {
-        if (!cancelled) setState({ status: 'error', data: null, error: err });
-      });
-    return () => {
-      cancelled = true;
-    };
+    setState({ status: 'loading', data: null, error: null, streamText: '' });
+    const source = streamResearch(articleId, {
+      onDelta: (text) => setState((s) => ({ ...s, streamText: s.streamText + text })),
+      onDone: (data) => setState({ status: 'ready', data, error: null, streamText: '' }),
+      onFailed: (error) => setState({ status: 'error', data: null, error, streamText: '' }),
+      onConnectionError: () =>
+        setState((s) =>
+          s.status === 'loading'
+            ? { status: 'error', data: null, error: { message: 'Connection lost' }, streamText: '' }
+            : s
+        ),
+    });
+    return () => source.close();
   }, [articleId]);
 
   if (state.status === 'loading') {
     return (
       <div className="space-y-2">
-        <div className="h-4 w-full animate-pulse rounded bg-muted" />
-        <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Spinner />
+          Researching…
+        </div>
+        {state.streamText && (
+          <p className="text-sm leading-relaxed text-foreground/70">{state.streamText}</p>
+        )}
       </div>
     );
   }
 
   if (state.status === 'error') {
-    const notConfigured = state.error && state.error.code === 'AI_NOT_CONFIGURED';
+    const notConfigured = state.error && state.error.error === 'AI_NOT_CONFIGURED';
     return (
       <div className="rounded-lg bg-amber-500/10 p-4 text-sm text-amber-400 ring-1 ring-amber-500/30">
         {notConfigured

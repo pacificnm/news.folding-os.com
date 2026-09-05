@@ -29,10 +29,32 @@ export function getArticle(id) {
   return request(`/news/${encodeURIComponent(id)}`);
 }
 
-export function getSummary(id) {
-  return request(`/news/${encodeURIComponent(id)}/summarize`);
+// Summarize/research stream as Server-Sent Events: "delta" ({text}) events
+// while the model generates, then one "done" (the final shaped result) or
+// "failed" ({error, message}) event. Returns the EventSource so callers can
+// close it on unmount/article change.
+function streamAi(path, { onDelta, onDone, onFailed, onConnectionError }) {
+  const source = new EventSource(`${BASE}${path}`, { withCredentials: true });
+  source.addEventListener('delta', (e) => onDelta(JSON.parse(e.data).text));
+  source.addEventListener('done', (e) => {
+    onDone(JSON.parse(e.data));
+    source.close();
+  });
+  source.addEventListener('failed', (e) => {
+    onFailed(JSON.parse(e.data));
+    source.close();
+  });
+  source.onerror = () => {
+    onConnectionError();
+    source.close();
+  };
+  return source;
 }
 
-export function getResearch(id) {
-  return request(`/news/${encodeURIComponent(id)}/research`);
+export function streamSummary(id, handlers) {
+  return streamAi(`/news/${encodeURIComponent(id)}/summarize`, handlers);
+}
+
+export function streamResearch(id, handlers) {
+  return streamAi(`/news/${encodeURIComponent(id)}/research`, handlers);
 }
