@@ -13,7 +13,12 @@ function Section({ title, children }) {
 }
 
 export default function ResearchPanel({ articleId }) {
-  const [state, setState] = useState({ status: 'idle', data: null, error: null });
+  // Starts at 'loading', not 'idle': the effect below sets 'loading' too,
+  // but only after the first render commits — an 'idle' initial state with
+  // no corresponding render branch fell through to the ready-state return
+  // (destructuring `state.data`) on that very first render, before the
+  // fetch had even started, crashing with data still null every time.
+  const [state, setState] = useState({ status: 'loading', data: null, error: null });
 
   useEffect(() => {
     let cancelled = false;
