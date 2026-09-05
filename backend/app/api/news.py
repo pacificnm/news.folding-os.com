@@ -1,13 +1,11 @@
-import json
-
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.common import find_article, not_found, single_sse_event, sse
 from app.clients.ollama import OllamaUnavailableError
 from app.db.session import get_db
 from app.models import AiResultKind
-from app.services import ai, feed_cache
+from app.services import ai, image_cache
 from app.services.ai_cache import get_ai_result, set_ai_result
 from app.services.news_source import list_all
 from app.services.rate_limit import enforce_ai_rate_limit
@@ -15,20 +13,23 @@ from app.services.rate_limit import enforce_ai_rate_limit
 router = APIRouter(prefix="/api/news", tags=["news"])
 
 
-def _cache_key(category: str | None, q: str | None, limit: int | None) -> str:
-    return json.dumps({"category": category or "", "q": q or "", "limit": limit or ""})
-
-
 @router.get("")
 async def get_news(category: str | None = None, q: str | None = None, limit: int | None = None) -> dict:
+    # No caching here: RssSource.list() only ever reads its already-fetched,
+    # background-refreshed snapshot (see app/services/feed_refresh.py) —
+    # there's no per-request I/O left to cache.
     take = min(limit or 100, 500)
-    key = _cache_key(category, q, take)
-
-    articles = feed_cache.get(key)
-    if articles is None:
-        articles = await list_all(category=category, q=q, limit=take)
-        feed_cache.put(key, articles)
+    articles = await list_all(category=category, q=q, limit=take)
     return {"articles": articles}
+
+
+@router.get("/{article_id}/image")
+async def get_article_image(article_id: str):
+    cached = image_cache.get(article_id)
+    if cached is None:
+        return not_found()
+    content, content_type = cached
+    return Response(content=content, media_type=content_type, headers={"Cache-Control": "public, max-age=900"})
 
 
 @router.get("/{article_id}")

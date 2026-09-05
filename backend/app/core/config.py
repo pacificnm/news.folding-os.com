@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     searxng_url: str = ""
 
     ai_rate_limit_per_minute: int = 30
-    feed_cache_ttl_seconds: int = 60
+    feed_refresh_interval_seconds: int = 600
 
 
 settings = Settings()

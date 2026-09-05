@@ -21,6 +21,8 @@ from time import struct_time
 import feedparser
 import httpx
 
+from app.services import image_cache
+
 # Built-in feed list. Each entry maps a feed to a category + source name.
 # Reuters/AP both discontinued public RSS access (401 / homepage-not-a-feed,
 # confirmed by hand) — replaced with The Guardian and CNN's World feeds,
@@ -150,25 +152,48 @@ def create_rss_source(feeds: list[dict] | None = None):
     the_feeds = feeds if feeds is not None else FEEDS
 
     class RssSource:
+        """Holds the last-fetched articles in memory; `.list()` only ever
+        filters/slices that snapshot — all the actual feed I/O happens in
+        `refresh()`, called on startup and then periodically by
+        app/services/feed_refresh.py. This is what makes GET /api/news
+        instant instead of paying RSS-fetch latency on every request.
+        """
+
         name = "rss"
 
-        async def list(self, category: str | None = None, q: str | None = None, limit: int | None = None) -> list[dict]:
-            wanted = [f for f in the_feeds if not category or f["category"] == category]
+        def __init__(self) -> None:
+            self._articles: list[dict] = []
+            self._warm_task: asyncio.Task | None = None
 
+        async def refresh(self) -> None:
             async with httpx.AsyncClient(headers={"User-Agent": "news.folding-os.com/1.0"}) as client:
-                results = await asyncio.gather(*(_fetch_feed(client, f) for f in wanted), return_exceptions=True)
+                results = await asyncio.gather(
+                    *(_fetch_feed(client, f) for f in the_feeds), return_exceptions=True
+                )
 
             articles: list[dict] = []
             for r in results:
                 if isinstance(r, list):
                     articles.extend(r)
+            self._articles = articles
 
+            # Fire-and-forget: image fetches are slower and flakier than the
+            # feeds themselves (a single hanging CDN would otherwise stall
+            # feed refresh, and startup, on it). Articles publish immediately
+            # with their original CDN image URLs and each one flips to the
+            # proxied/cached path in place as it warms — held on self so the
+            # task isn't garbage-collected mid-flight.
+            self._warm_task = asyncio.create_task(image_cache.warm_all(articles))
+
+        async def list(self, category: str | None = None, q: str | None = None, limit: int | None = None) -> list[dict]:
+            articles = self._articles
+            if category:
+                articles = [a for a in articles if a["category"] == category]
             if q:
                 needle = q.lower()
                 articles = [
                     a for a in articles if needle in a["title"].lower() or needle in a["description"].lower()
                 ]
-
             return articles[: limit or 100]
 
     return RssSource()
