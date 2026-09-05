@@ -9,6 +9,7 @@ __pycache__/
 .env.local
 .env.*.local
 .github_token
+searxng/searxng.env
 
 # Build output
 dist/

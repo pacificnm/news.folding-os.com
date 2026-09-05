@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getArticle } from '../api/client.js';
 import SummaryPanel from '../components/SummaryPanel.jsx';
-import ResearchPanel from '../components/ResearchPanel.jsx';
+import ResearchChat from '../components/ResearchChat.jsx';
 import { CardSkeleton } from '../components/Skeleton.jsx';
 
 export default function Article() {
@@ -86,9 +86,9 @@ export default function Article() {
           <SummaryPanel articleId={article.id} />
         </section>
 
-        <section className="rounded-xl bg-card p-6 ring-1 ring-border">
-          <h2 className="mb-3 text-lg font-semibold text-foreground">AI Research</h2>
-          <ResearchPanel articleId={article.id} />
+        <section className="flex min-h-[28rem] flex-col rounded-xl bg-card p-6 ring-1 ring-border">
+          <h2 className="mb-3 text-lg font-semibold text-foreground">Research Chat</h2>
+          <ResearchChat articleId={article.id} />
         </section>
       </div>
     </div>

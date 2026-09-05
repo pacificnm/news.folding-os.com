@@ -1,7 +1,7 @@
 from fastapi import Depends
 from foldingos_api_core import OIDCSettings, OIDCVerifier, RPSettings, build_rp_auth, create_app
 
-from app.api import news
+from app.api import chat, news
 from app.core.config import settings
 from app.services.news_source import register
 from app.services.rss_source import create_rss_source
@@ -28,6 +28,7 @@ def build_app():
     )
     app.include_router(auth_router)
     app.include_router(news.router, dependencies=[Depends(require_user)])
+    app.include_router(chat.router, dependencies=[Depends(require_user)])
 
     register(create_rss_source())
 

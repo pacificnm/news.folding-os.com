@@ -18,6 +18,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    depends_on:
+      - news-searxng
     networks:
       # Never reached from outside this project — the frontend's nginx
       # proxies /api/ and /auth/ to it over this private network.
@@ -50,6 +52,23 @@ services:
     networks:
       - news
       - cloudflare
+
+  # Self-hosted web search backing the research chat's web_search tool.
+  # Internal only, never on `cloudflare` — same isolation as chat.folding-os.com's
+  # own searxng instance, which this one is intentionally NOT shared with
+  # (each app gets its own, matching the site's per-app isolation convention).
+  news-searxng:
+    image: searxng/searxng:latest
+    container_name: news-searxng
+    restart: unless-stopped
+    env_file:
+      - searxng/searxng.env
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    # searxng image convention: "true" = start its normal webapp entrypoint
+    command: "true"
+    networks:
+      - news
 
 secrets:
   github_token:
