@@ -87,6 +87,18 @@ def _description(entry: dict) -> str:
 
 _IMG_TAG_RE = re.compile(r'<img[^>]+src=["\']([^"\']+)["\']')
 
+# BBC's media_thumbnail is a tiny 240x136 RSS-reader-sized image, but the
+# width is just a path segment on ichef.bbci.co.uk's image resizer — asking
+# for a bigger one (confirmed working up to at least 999px) is a plain URL
+# rewrite. Other CDNs seen here don't offer this: the Guardian's thumbnail
+# URL is cryptographically signed to its exact 140px width (any other width
+# gets a 401), and CNN's are already full-size.
+_BBC_ICHEF_RE = re.compile(r"(ichef\.bbci\.co\.uk/ace/standard/)\d+(/)")
+
+
+def _upsize(url: str) -> str:
+    return _BBC_ICHEF_RE.sub(r"\g<1>999\g<2>", url)
+
 
 def _image_url(entry: dict) -> str | None:
     """Best-effort thumbnail. Not every feed has one (see FEEDS' comment on
@@ -95,15 +107,15 @@ def _image_url(entry: dict) -> str | None:
     """
     thumb = entry.get("media_thumbnail")
     if thumb:
-        return thumb[0].get("url")
+        return _upsize(thumb[0].get("url"))
     media = entry.get("media_content")
     if media:
-        return media[0].get("url")
+        return _upsize(media[0].get("url"))
     for html in (entry.get("summary"), *(c.get("value", "") for c in entry.get("content") or [])):
         if html:
             match = _IMG_TAG_RE.search(html)
             if match:
-                return match.group(1)
+                return _upsize(match.group(1))
     return None
 
 
