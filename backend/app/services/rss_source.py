@@ -22,10 +22,13 @@ import feedparser
 import httpx
 
 # Built-in feed list. Each entry maps a feed to a category + source name.
+# Reuters/AP both discontinued public RSS access (401 / homepage-not-a-feed,
+# confirmed by hand) — replaced with The Guardian and CNN's World feeds,
+# which are live and, unlike the old two, actually carry article images.
 FEEDS = [
     {"name": "BBC News", "category": "World", "url": "https://feeds.bbci.co.uk/news/world/rss.xml"},
-    {"name": "Reuters", "category": "World", "url": "https://www.reutersagency.com/feed/?best-topics=world"},
-    {"name": "AP News", "category": "World", "url": "https://apnews.com/hub/world-news.rss"},
+    {"name": "The Guardian", "category": "World", "url": "https://www.theguardian.com/world/rss"},
+    {"name": "CNN", "category": "World", "url": "http://rss.cnn.com/rss/cnn_world.rss"},
     {"name": "NPR", "category": "US", "url": "https://feeds.npr.org/1001/rss.xml"},
     {"name": "TechCrunch", "category": "Tech", "url": "https://techcrunch.com/feed/"},
     {"name": "The Verge", "category": "Tech", "url": "https://www.theverge.com/rss/index.xml"},
@@ -82,6 +85,28 @@ def _description(entry: dict) -> str:
     return entry.get("title", "")
 
 
+_IMG_TAG_RE = re.compile(r'<img[^>]+src=["\']([^"\']+)["\']')
+
+
+def _image_url(entry: dict) -> str | None:
+    """Best-effort thumbnail. Not every feed has one (see FEEDS' comment on
+    which sources do): media RSS fields first, then the first <img> in
+    whatever HTML the entry carries.
+    """
+    thumb = entry.get("media_thumbnail")
+    if thumb:
+        return thumb[0].get("url")
+    media = entry.get("media_content")
+    if media:
+        return media[0].get("url")
+    for html in (entry.get("summary"), *(c.get("value", "") for c in entry.get("content") or [])):
+        if html:
+            match = _IMG_TAG_RE.search(html)
+            if match:
+                return match.group(1)
+    return None
+
+
 def _parse_entries(raw_bytes: bytes, feed: dict) -> list[dict]:
     parsed = feedparser.parse(raw_bytes)
     articles = []
@@ -97,6 +122,7 @@ def _parse_entries(raw_bytes: bytes, feed: dict) -> list[dict]:
                 "category": feed["category"],
                 "publishedAt": _published_at(entry),
                 "description": description[:500],
+                "imageUrl": _image_url(entry),
             }
         )
     return articles

@@ -58,26 +58,38 @@ export default function Article() {
         ← Back to feed
       </Link>
 
-      <article className="rounded-xl bg-card p-6 ring-1 ring-border">
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span className="rounded-full bg-accent px-2 py-0.5 font-medium text-accent-foreground">
-            {article.category}
-          </span>
-          <span>{article.source}</span>
-          {article.publishedAt && <span>· {new Date(article.publishedAt).toLocaleString()}</span>}
-        </div>
-        <h1 className="text-2xl font-bold leading-tight text-foreground">{article.title}</h1>
-        {article.description && (
-          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{article.description}</p>
+      <article className="overflow-hidden rounded-xl bg-card ring-1 ring-border">
+        {article.imageUrl && (
+          <img
+            src={article.imageUrl}
+            alt=""
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+            className="h-64 w-full object-cover"
+          />
         )}
-        <a
-          href={article.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-4 inline-flex items-center gap-1 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          Read original ↗
-        </a>
+        <div className="p-6">
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="rounded-full bg-accent px-2 py-0.5 font-medium text-accent-foreground">
+              {article.category}
+            </span>
+            <span>{article.source}</span>
+            {article.publishedAt && <span>· {new Date(article.publishedAt).toLocaleString()}</span>}
+          </div>
+          <h1 className="text-2xl font-bold leading-tight text-foreground">{article.title}</h1>
+          {article.description && (
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{article.description}</p>
+          )}
+          <a
+            href={article.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-4 inline-flex items-center gap-1 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Read original ↗
+          </a>
+        </div>
       </article>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
