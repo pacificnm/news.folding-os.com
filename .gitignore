@@ -1,17 +1,21 @@
 # Dependencies
 node_modules/
+.venv/
+__pycache__/
+*.pyc
 
 # Environment
 .env
 .env.local
 .env.*.local
+.github_token
 
 # Build output
 dist/
 build/
-
-# Data store
-server/data/
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
 
 # Logs
 *.log

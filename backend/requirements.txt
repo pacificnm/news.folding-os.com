@@ -1,0 +1,5 @@
+foldingos-api-core @ git+https://github.com/pacificnm/foldingos-api-core.git@v0.3.0
+uvicorn[standard]>=0.30
+httpx>=0.27
+feedparser>=6.0
+cachetools>=5.3

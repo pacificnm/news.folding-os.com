@@ -1,0 +1,62 @@
+# news.folding-os.com — FastAPI backend + SSO via identity.folding-os.com.
+# `.env` is the single source of config/secrets (see backend/.env.example).
+
+name: news
+
+services:
+  # Named `news-backend`, not the generic `backend` — every app on this host
+  # shares the `cloudflared_default` network, and a generic service name
+  # collides with another app's same-named service there (see
+  # identity.folding-os.com/docs/ARCHITECTURE.md for how that bit us).
+  news-backend:
+    build:
+      context: ./backend
+      secrets:
+        - github_token
+    image: news-backend:latest
+    container_name: news-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      # Never reached from outside this project — the frontend's nginx
+      # proxies /api/ and /auth/ to it over this private network.
+      - news
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5)"
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  news-frontend:
+    build:
+      context: ./frontend
+      secrets:
+        - github_token
+    image: news-frontend:latest
+    container_name: news-frontend
+    restart: unless-stopped
+    # Direct LAN access, matching every other app's convention.
+    ports:
+      - "3006:3006"
+    depends_on:
+      news-backend:
+        condition: service_healthy
+    networks:
+      - news
+      - cloudflare
+
+secrets:
+  github_token:
+    file: ./.github_token
+
+networks:
+  news:
+  cloudflare:
+    external: true
+    name: cloudflared_default
