@@ -10,11 +10,13 @@ export default function Article() {
   const [article, setArticle] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setExpanded(false);
     getArticle(id)
       .then((a) => {
         if (!cancelled) setArticle(a);
@@ -81,14 +83,36 @@ export default function Article() {
           {article.description && (
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{article.description}</p>
           )}
-          <a
-            href={article.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-4 inline-flex items-center gap-1 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            Read original ↗
-          </a>
+
+          {article.contentHtml && expanded && (
+            <div className="mt-4 space-y-3 border-t border-border pt-4">
+              {article.contentHtml.split('\n\n').map((para, i) => (
+                <p key={i} className="text-sm leading-relaxed text-foreground">
+                  {para}
+                </p>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            {article.contentHtml && (
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="inline-flex items-center gap-1 rounded-lg bg-muted px-4 py-2 text-sm font-medium text-foreground hover:bg-border"
+              >
+                {expanded ? 'Show less' : 'Read full article'}
+              </button>
+            )}
+            <a
+              href={article.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Read original ↗
+            </a>
+          </div>
         </div>
       </article>
 

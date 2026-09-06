@@ -16,6 +16,7 @@ Field mapping (feedparser's normalized entry -> our Article shape):
 import asyncio
 import re
 from datetime import UTC, datetime
+from html import unescape
 from time import struct_time
 
 import feedparser
@@ -55,15 +56,29 @@ def strip_html(html: str | None) -> str:
     if not html:
         return ""
     text = _TAG_RE.sub(" ", str(html))
-    text = (
-        text.replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", '"')
-        .replace("&#39;", "'")
-    )
+    text = unescape(text)
     return _WS_RE.sub(" ", text).strip()
+
+
+_BLOCK_BREAK_RE = re.compile(r"</(p|div|li|h[1-6])\s*>|<br\s*/?>", re.IGNORECASE)
+_BLANK_LINES_RE = re.compile(r"\n{3,}")
+_LINE_WS_RE = re.compile(r"[ \t]+")
+
+
+def _strip_html_paragraphs(html: str | None) -> str:
+    """Like strip_html(), but keeps paragraph breaks instead of flattening
+    everything to one line — worth doing for a full article body (used for
+    the "Read more" expansion and the AI's article_input()), not worth the
+    extra work for a one-line card teaser.
+    """
+    if not html:
+        return ""
+    text = _BLOCK_BREAK_RE.sub("\n\n", str(html))
+    text = _TAG_RE.sub("", text)
+    text = unescape(text)
+    text = _LINE_WS_RE.sub(" ", text)
+    text = _BLANK_LINES_RE.sub("\n\n", text)
+    return "\n\n".join(line.strip() for line in text.split("\n\n")).strip()
 
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -92,6 +107,52 @@ def _description(entry: dict) -> str:
     if content:
         return content[0].get("value", "")
     return entry.get("title", "")
+
+
+# Only worth a "Read more" expansion if it's meaningfully longer than the
+# card teaser — several feeds' <content:encoded> is barely longer than
+# their <summary> (e.g. NPR), which would make for a pointless expansion
+# that reveals a sentence or two of new text.
+MIN_EXTRA_CONTENT_CHARS = 400
+MAX_CONTENT_CHARS = 20000
+
+
+def _content_text(entry: dict, description: str) -> str | None:
+    """The fuller article body, when the feed actually includes one beyond
+    the teaser — several sources here (The Verge, Ars Technica, OregonLive,
+    Oregon Capital Chronicle) put real article text in <content:encoded>,
+    which _description() never surfaces since it prefers the shorter
+    <summary>. Named contentHtml (not contentText) to match the field
+    app/services/ai.py's article_input() has always expected but which
+    nothing has ever populated — paragraph-preserved plain text works
+    better than raw HTML for both that prompt and a simple frontend
+    "Read more" block (avoiding dangerouslySetInnerHTML for feed-sourced
+    HTML entirely).
+    """
+    summary = entry.get("summary") or ""
+    content_list = entry.get("content") or []
+    raw_content = content_list[0].get("value", "") if content_list else ""
+    raw = raw_content if len(raw_content) > len(summary) else summary
+    text = _strip_html_paragraphs(raw)
+    text = _drop_trailing_boilerplate(text)
+    if len(text) < len(description) + MIN_EXTRA_CONTENT_CHARS:
+        return None
+    return text[:MAX_CONTENT_CHARS]
+
+
+# Ars Technica's <content:encoded> always ends with its own "continue
+# reading"/comments-link paragraphs (just a bare <a>Read full article</a>
+# and <a>Comments</a>, stripped down to their link text) — not part of the
+# article, and confusing to show right above our own "Read full article"
+# toggle. Drop trailing paragraphs that are just one of these link labels.
+_TRAILING_BOILERPLATE = {"read full article", "read more", "comments", "continue reading"}
+
+
+def _drop_trailing_boilerplate(text: str) -> str:
+    paragraphs = text.split("\n\n")
+    while paragraphs and paragraphs[-1].strip().lower() in _TRAILING_BOILERPLATE:
+        paragraphs.pop()
+    return "\n\n".join(paragraphs)
 
 
 _IMG_TAG_RE = re.compile(r'<img[^>]+src=["\']([^"\']+)["\']')
@@ -146,7 +207,7 @@ def _parse_entries(raw_bytes: bytes, feed: dict) -> list[dict]:
         if not entry.get("published") and not entry.get("published_parsed"):
             continue
         url = entry.get("link") or entry.get("id") or ""
-        description = strip_html(_description(entry))
+        description = strip_html(_description(entry))[:500]
         articles.append(
             {
                 "id": f"{feed['name']}:{slugify(url)}",
@@ -155,7 +216,8 @@ def _parse_entries(raw_bytes: bytes, feed: dict) -> list[dict]:
                 "source": feed["name"],
                 "category": feed["category"],
                 "publishedAt": _published_at(entry),
-                "description": description[:500],
+                "description": description,
+                "contentHtml": _content_text(entry, description),
                 "imageUrl": _image_url(entry),
             }
         )
