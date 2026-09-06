@@ -10,7 +10,7 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "foldingos-ui": "github:pacificnm/foldingos-ui#v0.2.2",
+    "foldingos-ui": "github:pacificnm/foldingos-ui#v0.2.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.0"
