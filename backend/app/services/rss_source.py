@@ -137,6 +137,14 @@ def _parse_entries(raw_bytes: bytes, feed: dict) -> list[dict]:
     parsed = feedparser.parse(raw_bytes)
     articles = []
     for entry in parsed.entries:
+        # CNN's feed (at least) injects affiliate/sponsored placements
+        # (lendingtree.com, fool.com credit-card landing pages, no real
+        # publish date) with no `published`/`published_parsed` at all —
+        # a real article always has one. Skip rather than fall back to
+        # "now", which would make stale ad content look like the newest
+        # story in the feed and bury everything real underneath it.
+        if not entry.get("published") and not entry.get("published_parsed"):
+            continue
         url = entry.get("link") or entry.get("id") or ""
         description = strip_html(_description(entry))
         articles.append(
@@ -198,6 +206,13 @@ def create_rss_source(feeds: list[dict] | None = None):
             self._warm_task = asyncio.create_task(image_cache.warm_all(articles))
 
         async def list(self, category: str | None = None, q: str | None = None, limit: int | None = None) -> list[dict]:
+            # No `limit` slicing here: self._articles is in FEEDS-declaration
+            # order (each feed's own entries, concatenated), not sorted by
+            # recency — news_source.list_all() does the real global sort
+            # across every source before slicing to `limit`. Truncating here
+            # first, before that sort, was silently dropping any feed listed
+            # late in FEEDS (e.g. Yahoo News) whenever earlier feeds alone
+            # already filled the requested limit for a category.
             articles = self._articles
             if category:
                 articles = [a for a in articles if a["category"] == category]
@@ -206,6 +221,6 @@ def create_rss_source(feeds: list[dict] | None = None):
                 articles = [
                     a for a in articles if needle in a["title"].lower() or needle in a["description"].lower()
                 ]
-            return articles[: limit or 100]
+            return articles
 
     return RssSource()
