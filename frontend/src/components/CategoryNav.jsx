@@ -1,4 +1,4 @@
-const CATEGORIES = ['All', 'World', 'US', 'Tech', 'Business', 'Science'];
+const CATEGORIES = ['All', 'World', 'US', 'Local', 'Tech', 'Business', 'Science'];
 
 export default function CategoryNav({ active, onChange }) {
   return (

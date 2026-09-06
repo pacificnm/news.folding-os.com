@@ -39,6 +39,12 @@ FEEDS = [
     {"name": "Hacker News", "category": "Tech", "url": "https://hnrss.org/frontpage"},
     {"name": "BBC Business", "category": "Business", "url": "https://feeds.bbci.co.uk/news/business/rss.xml"},
     {"name": "BBC Science", "category": "Science", "url": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml"},
+    # Local: Portland, OR. KGW's feed times out consistently and KATU's
+    # is a genuinely empty "Untitled RSS Feed" — both dropped after
+    # verifying by hand; these three are live with real entries.
+    {"name": "OregonLive", "category": "Local", "url": "https://www.oregonlive.com/arc/outboundfeeds/rss/"},
+    {"name": "KOIN", "category": "Local", "url": "https://www.koin.com/feed/"},
+    {"name": "Oregon Capital Chronicle", "category": "Local", "url": "https://oregoncapitalchronicle.com/feed/"},
 ]
 
 _TAG_RE = re.compile(r"<[^>]*>")
@@ -105,8 +111,10 @@ def _upsize(url: str) -> str:
 
 def _image_url(entry: dict) -> str | None:
     """Best-effort thumbnail. Not every feed has one (see FEEDS' comment on
-    which sources do): media RSS fields first, then the first <img> in
-    whatever HTML the entry carries.
+    which sources do): media RSS fields first, then a standard RSS
+    <enclosure> image link (KOIN uses this — feedparser surfaces it as a
+    `links` entry with rel="enclosure"), then the first <img> in whatever
+    HTML the entry carries.
     """
     thumb = entry.get("media_thumbnail")
     if thumb:
@@ -114,6 +122,9 @@ def _image_url(entry: dict) -> str | None:
     media = entry.get("media_content")
     if media:
         return _upsize(media[0].get("url"))
+    for link in entry.get("links") or []:
+        if link.get("rel") == "enclosure" and str(link.get("type", "")).startswith("image/"):
+            return _upsize(link.get("href"))
     for html in (entry.get("summary"), *(c.get("value", "") for c in entry.get("content") or [])):
         if html:
             match = _IMG_TAG_RE.search(html)
