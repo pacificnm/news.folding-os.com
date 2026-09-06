@@ -5,8 +5,21 @@ import SearchBar from '../components/SearchBar.jsx';
 import ArticleCard from '../components/ArticleCard.jsx';
 import { CardSkeleton } from '../components/Skeleton.jsx';
 
+const CATEGORY_STORAGE_KEY = 'news:category';
+
+function readStoredCategory() {
+  try {
+    return localStorage.getItem(CATEGORY_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
 export default function Home() {
-  const [category, setCategory] = useState('');
+  // Navigating to /article/:id and back remounts Home (separate routes),
+  // which would otherwise reset the category to "All" every time —
+  // persist it so "back" returns to whatever was last selected.
+  const [category, setCategory] = useState(readStoredCategory);
   const [q, setQ] = useState('');
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,10 +44,19 @@ export default function Home() {
     };
   }, [category, q]);
 
+  function handleCategoryChange(next) {
+    setCategory(next);
+    try {
+      localStorage.setItem(CATEGORY_STORAGE_KEY, next);
+    } catch {
+      /* private browsing / storage disabled — category just won't persist */
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <CategoryNav active={category} onChange={setCategory} />
+        <CategoryNav active={category} onChange={handleCategoryChange} />
         <SearchBar onSearch={setQ} />
       </div>
 
