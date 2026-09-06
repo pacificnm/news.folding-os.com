@@ -17,6 +17,25 @@ MAX_BYTES = 5 * 1024 * 1024  # a runaway/hostile response shouldn't grow this un
 
 _store: dict[str, tuple[bytes, str]] = {}
 
+# Sniffed from the actual bytes rather than trusted from the response's
+# Content-Type header — CNN's CDN, for one, serves real JPEGs as
+# application/octet-stream, which a header-based check would drop entirely.
+_MAGIC: list[tuple[bytes, str]] = [
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+]
+
+
+def _sniff_image_type(data: bytes) -> str | None:
+    for magic, mime in _MAGIC:
+        if data.startswith(magic):
+            return mime
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
 
 async def _fetch(client: httpx.AsyncClient, url: str) -> tuple[bytes, str] | None:
     try:
@@ -24,8 +43,10 @@ async def _fetch(client: httpx.AsyncClient, url: str) -> tuple[bytes, str] | Non
         resp.raise_for_status()
     except httpx.HTTPError:
         return None
-    content_type = resp.headers.get("content-type", "image/jpeg").split(";")[0].strip()
-    if not content_type.startswith("image/") or len(resp.content) > MAX_BYTES:
+    if len(resp.content) > MAX_BYTES:
+        return None
+    content_type = _sniff_image_type(resp.content)
+    if content_type is None:
         return None
     return resp.content, content_type
 

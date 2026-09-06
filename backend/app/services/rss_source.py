@@ -31,6 +31,7 @@ FEEDS = [
     {"name": "BBC News", "category": "World", "url": "https://feeds.bbci.co.uk/news/world/rss.xml"},
     {"name": "The Guardian", "category": "World", "url": "https://www.theguardian.com/world/rss"},
     {"name": "CNN", "category": "World", "url": "http://rss.cnn.com/rss/cnn_world.rss"},
+    {"name": "Yahoo News", "category": "World", "url": "https://news.yahoo.com/rss/topstories"},
     {"name": "NPR", "category": "US", "url": "https://feeds.npr.org/1001/rss.xml"},
     {"name": "TechCrunch", "category": "Tech", "url": "https://techcrunch.com/feed/"},
     {"name": "The Verge", "category": "Tech", "url": "https://www.theverge.com/rss/index.xml"},
