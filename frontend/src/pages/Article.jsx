@@ -118,7 +118,6 @@ export default function Article() {
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <section className="rounded-xl bg-card p-6 ring-1 ring-border">
-          <h2 className="mb-3 text-lg font-semibold text-foreground">AI Summary</h2>
           <SummaryPanel articleId={article.id} />
         </section>
 
