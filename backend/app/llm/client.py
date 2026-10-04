@@ -1,8 +1,10 @@
-"""Streaming chat client for the Ollama OpenAI-compatible endpoint.
+"""Streaming chat client backed by the Claude API.
 
-Ported from chat.folding-os.com/backend/app/llm/client.py. Thin on purpose:
-the agent loop (agent.py) owns all control (event stream, cancel, caps)
-instead of delegating to a heavier agent library.
+Translates the OpenAI-shaped conversation and tool schema that agent.py and
+tools.py build (a legacy of the Ollama OpenAI-compatible endpoint this used
+to call) into Claude Messages API calls, and translates Claude's stream
+events back into the same Delta shapes — so agent.py and tools.py don't need
+to know or care which provider is behind this client.
 """
 
 import json
@@ -10,16 +12,13 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
+import anthropic
 
-from app.core.config import settings
-
-ConnectTimeout = 10.0
-ReadTimeout = 300.0  # slow first tokens on a shared/contended Ollama; keep the window wide
+MODEL = "claude-sonnet-5"
 
 
 class LLMError(RuntimeError):
-    """Ollama request failed; `detail` is a short, user-safe digest."""
+    """Claude request failed; `detail` is a short, user-safe digest."""
 
     def __init__(self, detail: str) -> None:
         super().__init__(detail)
@@ -33,7 +32,7 @@ class TextDelta:
 
 @dataclass(frozen=True)
 class ThinkingDelta:
-    """Chain-of-thought from reasoning models (`delta.reasoning`); not the answer."""
+    """Chain-of-thought; not the answer."""
 
     text: str
 
@@ -56,13 +55,67 @@ Delta = TextDelta | ThinkingDelta | ToolCallDelta | DoneDelta
 ShouldCancel = Callable[[], Awaitable[bool]] | Callable[[], bool]
 
 
-class LLMClient:
-    def __init__(self, base_url: str | None = None) -> None:
-        self.base_url = (base_url or settings.ollama_base_url).rstrip("/")
-        self.keep_alive = settings.ollama_keep_alive
+def _to_claude_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+    """Convert the OpenAI-shaped convo (system/user/assistant/tool roles,
+    OpenAI-style tool_calls) into a Claude system string + messages list.
+    """
+    system = ""
+    out: list[dict[str, Any]] = []
+    for m in messages:
+        role = m["role"]
+        if role == "system":
+            system = m.get("content") or ""
+        elif role == "user":
+            out.append({"role": "user", "content": m.get("content") or ""})
+        elif role == "assistant":
+            content: list[dict[str, Any]] = []
+            if m.get("content"):
+                content.append({"type": "text", "text": m["content"]})
+            for tc in m.get("tool_calls") or []:
+                fn = tc["function"]
+                try:
+                    tool_input = json.loads(fn["arguments"] or "{}")
+                except ValueError:
+                    tool_input = {}
+                content.append(
+                    {"type": "tool_use", "id": tc["id"], "name": fn["name"], "input": tool_input}
+                )
+            out.append({"role": "assistant", "content": content})
+        elif role == "tool":
+            out.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": m["tool_call_id"],
+                            "content": m["content"],
+                        }
+                    ],
+                }
+            )
+    return system, out
 
-    def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(timeout=httpx.Timeout(ReadTimeout, connect=ConnectTimeout))
+
+def _to_claude_tools(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+    if not tools:
+        return None
+    out = []
+    for t in tools:
+        fn = t["function"]
+        out.append(
+            {
+                "name": fn["name"],
+                "description": fn.get("description", ""),
+                "input_schema": fn["parameters"],
+            }
+        )
+    return out
+
+
+class LLMClient:
+    def __init__(self) -> None:
+        self._client = anthropic.AsyncAnthropic()
 
     async def stream_chat(
         self,
@@ -74,74 +127,52 @@ class LLMClient:
         max_tokens: int = 2048,
         should_cancel: ShouldCancel | None = None,
     ) -> AsyncIterator[Delta]:
-        """Stream one model turn as deltas. Caller iterates to completion."""
-        body: dict[str, Any] = {
+        """Stream one model turn as deltas. Caller iterates to completion.
+
+        `temperature` is accepted for interface compatibility with the prior
+        Ollama-backed client but not forwarded — Claude rejects non-default
+        sampling parameters.
+        """
+        system, claude_messages = _to_claude_messages(messages)
+        claude_tools = _to_claude_tools(tools)
+        tool_index = -1
+
+        kwargs: dict[str, Any] = {
             "model": model,
-            "messages": messages,
-            "stream": True,
-            "temperature": temperature,
             "max_tokens": max_tokens,
-            "keep_alive": self.keep_alive,
+            "thinking": {"type": "disabled"},
+            "messages": claude_messages,
         }
-        if tools:
-            body["tools"] = tools
+        if system:
+            kwargs["system"] = system
+        if claude_tools:
+            kwargs["tools"] = claude_tools
 
-        async with self._client() as client:
-            try:
-                async with client.stream("POST", f"{self.base_url}/v1/chat/completions", json=body) as resp:
-                    if resp.status_code >= 400:
-                        await self._fail(resp)
-                    async for line in resp.aiter_lines():
-                        if should_cancel is not None and await _maybe_cancel(should_cancel):
-                            return
-                        if not line or not line.startswith("data:"):
-                            continue
-                        payload = line[5:].strip()
-                        if payload == "[DONE]":
-                            break
-                        delta = self._parse_delta(payload)
-                        if delta is not None:
-                            yield delta
-            except httpx.HTTPStatusError as exc:
-                raise LLMError(str(exc)) from exc
-            except httpx.HTTPError as exc:
-                raise LLMError(f"Ollama request failed: {exc.__class__.__name__}") from exc
-
-    @staticmethod
-    async def _fail(resp: httpx.Response) -> None:
         try:
-            raw = (await resp.aread()).decode("utf-8", "replace")[:300].replace("\n", " ").strip()
-        except httpx.HTTPError:
-            raw = ""
-        if resp.status_code == 413:
-            raise LLMError("context too long (413): ask to narrow the scope")
-        if resp.status_code in (400, 404):
-            raise LLMError(f"Ollama rejected the request ({resp.status_code}): {raw[:120]}")
-        raise LLMError(f"Ollama error {resp.status_code}: {raw[:120]}")
+            async with self._client.messages.stream(**kwargs) as stream:
+                async for event in stream:
+                    if should_cancel is not None and await _maybe_cancel(should_cancel):
+                        return
+                    if event.type == "content_block_start":
+                        if event.content_block.type == "tool_use":
+                            tool_index += 1
+                            yield ToolCallDelta(
+                                index=tool_index,
+                                id=event.content_block.id,
+                                name=event.content_block.name,
+                            )
+                    elif event.type == "content_block_delta":
+                        if event.delta.type == "text_delta":
+                            yield TextDelta(text=event.delta.text)
+                        elif event.delta.type == "thinking_delta":
+                            yield ThinkingDelta(text=event.delta.thinking)
+                        elif event.delta.type == "input_json_delta":
+                            yield ToolCallDelta(index=tool_index, arguments_chunk=event.delta.partial_json)
 
-    @staticmethod
-    def _parse_delta(payload: str) -> Delta | None:
-        try:
-            data: Any = json.loads(payload)
-        except ValueError:
-            return None
-        choice = (data.get("choices") or [{}])[0]
-        d = choice.get("delta") or {}
-        if d.get("reasoning"):
-            return ThinkingDelta(text=d["reasoning"])
-        if d.get("content"):
-            return TextDelta(text=d["content"])
-        for tc in d.get("tool_calls") or []:
-            fn = tc.get("function") or {}
-            return ToolCallDelta(
-                index=int(tc.get("index", 0)),
-                id=tc.get("id"),
-                name=fn.get("name"),
-                arguments_chunk=fn.get("arguments") or "",
-            )
-        if choice.get("finish_reason"):
-            return DoneDelta(finish_reason=choice["finish_reason"])
-        return None
+                final = await stream.get_final_message()
+                yield DoneDelta(finish_reason=final.stop_reason)
+        except anthropic.APIError as exc:
+            raise LLMError(f"Claude request failed: {exc}") from exc
 
 
 async def _maybe_cancel(should_cancel: ShouldCancel) -> bool:

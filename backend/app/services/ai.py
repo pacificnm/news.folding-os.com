@@ -1,17 +1,13 @@
-"""AI summarize for an article. Direct port of the original app's
-services/ai.js — same prompt, same truncation, same "never throw, return
-{error, message}" contract — only the transport changes (OpenAI -> local
-Ollama). The original's defensive JSON-fence-stripping isn't needed here:
-`chat_json` (app/clients/ollama.py) already raises OllamaUnavailableError
-for a non-JSON/malformed response, using Ollama's own `format: "json"`
-constrained decoding rather than a text-based fence strip.
+"""AI summarize for an article. Same prompt, same truncation, same "never
+throw, return {error, message}" contract as the original — only the
+transport changes (OpenAI -> Ollama -> Claude).
 
 (Research used to live here too, as a second one-shot JSON call. It's now
 the interactive chat in app/api/chat.py + app/llm/, which needs multi-turn
 history and tool-calling that this module's one-shot pattern can't do.)
 """
 
-from app.clients.ollama import OllamaUnavailableError, chat_json, stream_chat_json
+from app.clients.claude import ClaudeUnavailableError, chat_json, stream_chat_json
 
 MAX_INPUT_CHARS = 12000
 
@@ -48,14 +44,14 @@ async def summarize(article: dict) -> dict:
     """Returns {summary, keyPoints} or {error, message}."""
     try:
         data = await chat_json(SUMMARIZE_PROMPT, article_input(article))
-    except OllamaUnavailableError as exc:
+    except ClaudeUnavailableError as exc:
         return _not_configured(str(exc))
     return _shape_summary(data)
 
 
 async def summarize_stream(article: dict):
     """Streaming counterpart to summarize(): yields ("delta", str) fragments
-    then a final ("done", {summary, keyPoints}). Raises OllamaUnavailableError
+    then a final ("done", {summary, keyPoints}). Raises ClaudeUnavailableError
     on failure — callers stream this directly to the client and translate a
     caught error into the {error, message} shape at the transport layer.
     """

@@ -129,13 +129,20 @@ async def run_turn(
             # satisfy nothing, close the turn with the text gathered.
             return await _finish(result, "done", emit)
 
+        # Computed once and reused below: the tool role's tool_call_id must
+        # match the id the assistant's tool_calls entry was given, or a
+        # strict provider (Claude) rejects the turn with a 400. Ollama never
+        # sent a real id, so both sides always fell back to the same
+        # synthetic value — masking this as a non-issue until now.
+        call_ids = [c.id or f"call_{result.rounds}_{i}" for i, c in enumerate(calls)]
+
         convo.append(
             {
                 "role": "assistant",
                 "content": round_text or None,
                 "tool_calls": [
                     {
-                        "id": c.id or f"call_{result.rounds}_{i}",
+                        "id": call_ids[i],
                         "type": "function",
                         "function": {"name": c.name, "arguments": c.arguments or "{}"},
                     }
@@ -184,7 +191,7 @@ async def run_turn(
             convo.append(
                 {
                     "role": "tool",
-                    "tool_call_id": f"call_{result.rounds}_{i}",
+                    "tool_call_id": call_ids[i],
                     "content": capped,
                 }
             )

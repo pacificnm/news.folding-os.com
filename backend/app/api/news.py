@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.common import find_article, not_found, single_sse_event, sse
-from app.clients.ollama import OllamaUnavailableError
+from app.clients.claude import ClaudeUnavailableError
 from app.db.session import get_db
 from app.models import AiResultKind
 from app.services import ai, image_cache
@@ -42,10 +42,10 @@ async def get_article(article_id: str):
 
 async def _run_summarize_stream(article_id: str, article: dict, db: AsyncSession):
     """Adapts ai.summarize_stream() into SSE events, caching the result once
-    it completes. A failure (Ollama down, bad response) becomes a "failed"
-    event rather than an exception — the stream has already sent 200 + delta
-    events by the time this can happen, so it's too late to fall back to a
-    JSON error response.
+    it completes. A failure (Claude unreachable, bad response) becomes a
+    "failed" event rather than an exception — the stream has already sent
+    200 + delta events by the time this can happen, so it's too late to fall
+    back to a JSON error response.
     """
     try:
         async for event, payload in ai.summarize_stream(article):
@@ -54,7 +54,7 @@ async def _run_summarize_stream(article_id: str, article: dict, db: AsyncSession
                 yield ("done", payload)
             else:
                 yield ("delta", {"text": payload})
-    except OllamaUnavailableError as exc:
+    except ClaudeUnavailableError as exc:
         yield ("failed", {"error": "AI_NOT_CONFIGURED", "message": str(exc)})
 
 

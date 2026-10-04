@@ -66,7 +66,7 @@ export default function SummaryPanel({ articleId }) {
           return (
             <div className="rounded-lg bg-amber-500/10 p-4 text-sm text-amber-400 ring-1 ring-amber-500/30">
               {notConfigured
-                ? 'AI summaries are not configured. Set OLLAMA_BASE_URL on the server to enable this.'
+                ? 'AI summaries are not configured. Set ANTHROPIC_API_KEY on the server to enable this.'
                 : `Could not load summary: ${state.error.message}`}
             </div>
           );

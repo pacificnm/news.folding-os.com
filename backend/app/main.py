@@ -2,7 +2,15 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
-from foldingos_api_core import OIDCSettings, OIDCVerifier, RPSettings, build_rp_auth, create_app
+from foldingos_api_core import (
+    ApiKeyVerifier,
+    OIDCSettings,
+    OIDCVerifier,
+    RPSettings,
+    build_require_claims,
+    build_rp_auth,
+    create_app,
+)
 
 from app.api import chat, news
 from app.core.config import settings
@@ -41,7 +49,7 @@ def build_app():
             audience=settings.identity_client_id,
         )
     )
-    auth_router, require_user = build_rp_auth(
+    auth_router, require_session_user = build_rp_auth(
         RPSettings(
             issuer=settings.identity_issuer,
             client_id=settings.identity_client_id,
@@ -49,6 +57,15 @@ def build_app():
         ),
         verifier,
     )
+    # API keys are minted on identity.folding-os.com (one key works on every
+    # app); this app only asks identity who a `Bearer fos_...` key belongs to.
+    # Falls back to the session cookie.
+    api_keys = ApiKeyVerifier(
+        issuer=settings.identity_issuer,
+        client_id=settings.identity_client_id,
+        client_secret=settings.identity_client_secret,
+    )
+    require_user = build_require_claims(require_session_user, api_keys)
     app.include_router(auth_router)
     app.include_router(news.router, dependencies=[Depends(require_user)])
     app.include_router(chat.router, dependencies=[Depends(require_user)])

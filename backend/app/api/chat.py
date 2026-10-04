@@ -1,6 +1,6 @@
 """Per-article research chat: a real conversation with a web_search tool,
 replacing the old auto-run "AI Research" call. See app/llm/ for the
-Ollama-native tool-calling loop this is built on.
+provider-agnostic tool-calling loop this is built on.
 """
 
 import asyncio
@@ -10,10 +10,9 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.common import find_article, not_found, sse
-from app.core.config import settings
 from app.db.session import get_db
 from app.llm import agent
-from app.llm.client import LLMClient
+from app.llm.client import MODEL, LLMClient
 from app.llm.tools import get_tools
 from app.services import chat_history
 from app.services.ai import article_input
@@ -76,7 +75,7 @@ async def _run_chat_turn(article_id: str, system: str, history: list[dict], db: 
         try:
             result = await agent.run_turn(
                 client=LLMClient(),
-                model=settings.ollama_chat_model,
+                model=MODEL,
                 system=system,
                 history=history,
                 tools=get_tools(),
